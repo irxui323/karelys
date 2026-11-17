@@ -1,4 +1,4 @@
-import {Component,inject,OnInit} from '@angular/core';
+import {ChangeDetectorRef,Component,inject,OnInit} from '@angular/core';
 import {FormsModule} from '@angular/forms';
 import {ShellComponent} from './shell.component';
 import {ApiService,Row,errorText} from './core';
@@ -58,12 +58,50 @@ import {ApiService,Row,errorText} from './core';
 </app-shell>
 `})
 export class PacientesComponent implements OnInit{
+ private readonly changeDetector=inject(ChangeDetectorRef);
  api=inject(ApiService);vista='lista';buscar='';pacientes:Row[]=[];citas:Row[]=[];error='';exito='';cargando=false;
  form:Row={};ngOnInit(){this.cargar()}
- async cargar(){try{[this.pacientes,this.citas]=await Promise.all([this.api.list('pacientes'),this.api.list('citas')]);this.error=''}catch(e){this.error=errorText(e)}}
+ async cargar(){
+  const [pacientes,citas]=await Promise.allSettled([this.api.list('pacientes'),this.api.list('citas')]);
+  const errores:string[]=[];
+  if(pacientes.status==='fulfilled') this.pacientes=pacientes.value;
+  else errores.push('No se pudo cargar pacientes. '+errorText(pacientes.reason));
+  if(citas.status==='fulfilled') this.citas=citas.value;
+  else errores.push('No se pudo cargar citas. '+errorText(citas.reason));
+  this.error=errores.join(' ');
+  this.changeDetector.markForCheck();
+ }
  filtrados(){const q=this.buscar.toLowerCase();return this.pacientes.filter(x=>(x.NUMERO_DOCUMENTO+' '+x.NOMBRES+' '+x.APELLIDOS).toLowerCase().includes(q))}
  nuevo(){this.form={tipoDocumento:'DNI',numeroDocumento:'',nombres:'',apellidos:'',fechaNacimiento:'',telefono:'',correo:'',direccion:'',estado:'ACTIVO'};this.vista='form';this.error='';this.exito=''}
  editar(p:Row){this.form={idPaciente:p.ID_PACIENTE,tipoDocumento:p.TIPO_DOCUMENTO,numeroDocumento:p.NUMERO_DOCUMENTO,nombres:p.NOMBRES,apellidos:p.APELLIDOS,telefono:p.TELEFONO,correo:p.CORREO,direccion:p.DIRECCION,estado:p.ESTADO};this.vista='form'}
- async guardar(){this.error='';this.cargando=true;try{await this.api.op(this.form.idPaciente?'paciente-editar':'paciente-crear',this.form);this.exito='Paciente guardado correctamente.';this.vista='lista';await this.cargar()}catch(e){this.error=errorText(e)}finally{this.cargando=false}}
- async admitir(c:Row){try{await this.api.op('asistencia-registrar',{idCita:c.ID_CITA});this.exito='Asistencia registrada.';await this.cargar()}catch(e){this.error=errorText(e)}}
+ async guardar(){
+  if(this.cargando)return;
+  this.error='';
+  this.exito='';
+  this.cargando=true;
+  try{
+   await this.api.op(this.form.idPaciente?'paciente-editar':'paciente-crear',this.form);
+   this.exito='Paciente guardado correctamente.';
+   this.buscar='';
+   this.vista='lista';
+  }catch(e){
+   this.error=errorText(e);
+   return;
+  }finally{
+   this.cargando=false;
+   this.changeDetector.markForCheck();
+  }
+  await this.cargar();
+ }
+ async admitir(c:Row){
+  try{
+   await this.api.op('asistencia-registrar',{idCita:c.ID_CITA});
+   this.exito='Asistencia registrada.';
+   this.changeDetector.markForCheck();
+   await this.cargar();
+  }catch(e){
+   this.error=errorText(e);
+   this.changeDetector.markForCheck();
+  }
+ }
 }
